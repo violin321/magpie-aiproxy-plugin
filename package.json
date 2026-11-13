@@ -1,0 +1,47 @@
+{
+  "name": "@violin321/magpie-aiproxy",
+  "version": "0.1.0",
+  "description": "AiProxy provider plugin for Magpie/OpenCode with native account, plan and wallet quota reporting",
+  "type": "module",
+  "main": "./opencode.mjs",
+  "exports": {
+    ".": "./opencode.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "opencode.mjs",
+    "README.md",
+    "LICENSE",
+    "aiproxy.test.mjs"
+  ],
+  "keywords": [
+    "magpie",
+    "magpie-plugin",
+    "opencode",
+    "opencode-plugin",
+    "aiproxy",
+    "quota"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20",
+    "magpie": ">=0.1.4026"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check index.mjs"
+  },
+  "magpie": {
+    "name": "AiProxy Quota",
+    "summary": {
+      "en": "AiProxy provider with native wallet, plan and shared quota windows in Magpie.",
+      "zh": "AiProxy 原生供应商插件，在 Magpie 中显示钱包、套餐和共享额度窗口。"
+    },
+    "maxConcurrency": 8
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/violin321/magpie-aiproxy-plugin.git"
+  },
+  "homepage": "https://github.com/violin321/magpie-aiproxy-plugin"
+}
