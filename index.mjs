@@ -1,5 +1,5 @@
 const ID = "aiproxy"
-const ICON_URL = "https://raw.githubusercontent.com/violin321/magpie-aiproxy-plugin/main/icon.svg"
+const ICON_URL = "https://raw.githubusercontent.com/violin321/magpie-aiproxy-plugin/main/icon.png"
 const MODEL_NPM = "@ai-sdk/openai-compatible"
 const TIMEOUT_MS = 20_000
 

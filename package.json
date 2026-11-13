@@ -1,6 +1,6 @@
 {
   "name": "@violin321/magpie-aiproxy",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "AiProxy provider plugin for Magpie/OpenCode with native account, plan and wallet quota reporting",
   "type": "module",
   "main": "./opencode.mjs",
@@ -11,6 +11,7 @@
     "index.mjs",
     "opencode.mjs",
     "icon.svg",
+    "icon.png",
     "README.md",
     "LICENSE",
     "aiproxy.test.mjs"
@@ -33,7 +34,7 @@
     "check": "node --check index.mjs"
   },
   "magpie": {
-    "icon": "https://raw.githubusercontent.com/violin321/magpie-aiproxy-plugin/main/icon.svg",
+    "icon": "https://raw.githubusercontent.com/violin321/magpie-aiproxy-plugin/main/icon.png",
     "name": "AiProxy Quota",
     "summary": {
       "en": "AiProxy provider with native wallet, plan and shared quota windows in Magpie.",
