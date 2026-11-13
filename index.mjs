@@ -1,5 +1,6 @@
 const ID = "aiproxy"
 const DEFAULT_BASE_URL = "https://api.violinai.qzz.io"
+const ICON_URL = "https://raw.githubusercontent.com/violin321/magpie-aiproxy-plugin/main/icon.svg"
 const MODEL_NPM = "@ai-sdk/openai-compatible"
 const TIMEOUT_MS = 20_000
 
@@ -464,6 +465,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
   return {
     auth: {
       provider: ID,
+      icon: ICON_URL,
       maxConcurrency: 8,
       usage,
       loader: async (getAuth) => {
