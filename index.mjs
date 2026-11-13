@@ -178,15 +178,49 @@ function windowSpan(name, plan) {
   return undefined
 }
 
+const windowAliases = {
+  window: ["window", "rolling", "five_hour", "fiveHour"],
+  daily: ["daily", "day"],
+  weekly: ["weekly", "week", "7d", "seven_day", "sevenDay"],
+  budget: ["budget", "monthly", "month"],
+}
+
+function windowPart(source, name, suffix) {
+  const input = record(source)
+  for (const alias of windowAliases[name] ?? [name]) {
+    const nested = record(input[alias])
+    if (nested[suffix] !== undefined) return nested[suffix]
+    const camel = `${suffix}${alias[0].toUpperCase()}${alias.slice(1)}`
+    if (nested[camel] !== undefined) return nested[camel]
+    for (const key of [`${alias}_${suffix}`, `${alias}${suffix[0].toUpperCase()}${suffix.slice(1)}`]) {
+      if (input[key] !== undefined) return input[key]
+    }
+  }
+  for (const alias of windowAliases[name] ?? [name]) {
+    for (const key of [`${alias}_${suffix}`, `${alias}${suffix[0].toUpperCase()}${suffix.slice(1)}`]) {
+      if (input[key] !== undefined) return input[key]
+    }
+  }
+  return undefined
+}
+
+function windowReset(source, name) {
+  return windowPart(source, name, "reset_at")
+    ?? windowPart(source, name, "resetAt")
+    ?? windowPart(source, name, "resets_at")
+    ?? windowPart(source, name, "resetsAt")
+}
+
 function quotaWindows(source, prefix, plan, scope = "group") {
   const input = record(source)
   const metric = text(input.metric)
   const windows = []
   for (const name of ["window", "daily", "weekly", "budget"]) {
-    const limit = finitePositive(input[`${name}_limit`])
-    const used = finitePositive(input[`${name}_used`])
-    const remaining = finitePositive(input[`${name}_remaining`])
-    if (limit === null && used === null && remaining === null) continue
+    const limit = finitePositive(windowPart(input, name, "limit"))
+    const used = finitePositive(windowPart(input, name, "used"))
+    const remaining = finitePositive(windowPart(input, name, "remaining"))
+    const usedPercent = finitePositive(windowPart(input, name, "used_percent"))
+    if ((limit ?? 0) <= 0 && (used ?? 0) <= 0 && (remaining ?? 0) <= 0 && usedPercent === null) continue
     const effectiveLimit = limit ?? (used !== null && remaining !== null ? used + remaining : null)
     const effectiveUsed = used ?? (effectiveLimit !== null && remaining !== null ? effectiveLimit - remaining : null)
     const row = {
@@ -196,6 +230,7 @@ function quotaWindows(source, prefix, plan, scope = "group") {
       unit: unitOf(metric, name),
       ...(effectiveLimit !== null ? { limit: effectiveLimit } : {}),
       ...(effectiveUsed !== null ? { amount: effectiveUsed, used: effectiveLimit ? (effectiveUsed / effectiveLimit) * 100 : undefined } : {}),
+      ...(effectiveUsed === null && usedPercent !== null ? { used: usedPercent } : {}),
       ...(remaining !== null ? { display: `${remaining} / ${effectiveLimit ?? "?"} ${unitOf(metric, name)}` } : {}),
       ...(windowSpan(name, plan) ? { span: windowSpan(name, plan) } : {}),
       ...(metric ? { aside: false } : {}),
@@ -230,7 +265,7 @@ function parseEntitlements(body) {
       seen.add(metricName)
       const parsed = quotaWindows(metricObject, `${name}${metricName ? ` · ${metricLabel(metricName)}` : ""}`, plan)
       for (const row of parsed) {
-        const reset = dateOf(metricObject[`${row.window}_reset_at`] || resets[row.window])
+        const reset = dateOf(windowReset(metricObject, row.window) || resets[row.window])
         if (reset) row.resetsAt = reset
         if (metricName) row.display = row.display ? `${row.display} · ${metricLabel(metricName)}` : metricLabel(metricName)
       }

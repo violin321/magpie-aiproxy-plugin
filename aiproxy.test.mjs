@@ -54,6 +54,27 @@ test("parses AiProxy entitlement windows and wallet balance", () => {
   assert.equal(result.windows[0].resetsAt, "2030-01-02T00:00:00.000Z")
 })
 
+test("accepts nested weekly quota fields used by newer AiProxy builds", () => {
+  const result = _internal.parseEntitlements({
+    plans: [{
+      plan: { name: "Nested plan" },
+      remaining: {
+        metric: "cost_usd",
+        weekly: {
+          used: 7.5,
+          limit: 25,
+          resetAt: "2030-01-08T00:00:00Z",
+        },
+      },
+      resets: {},
+    }],
+  })
+  assert.equal(result.windows.length, 1)
+  assert.equal(result.windows[0].window, "weekly")
+  assert.equal(result.windows[0].used, 30)
+  assert.equal(result.windows[0].resetsAt, "2030-01-08T00:00:00.000Z")
+})
+
 test("logs in, reads entitlements, and persists the session cookie", async () => {
   const calls = []
   const fetchImpl = async (url, init = {}) => {
