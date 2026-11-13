@@ -1,6 +1,5 @@
 const ID = "aiproxy"
-const DEFAULT_BASE_URL = "https://api.violinai.qzz.io"
-const ICON_URL = "https://api.violinai.qzz.io/brand/favicon.png"
+const ICON_URL = "https://raw.githubusercontent.com/violin321/magpie-aiproxy-plugin/main/icon.svg"
 const MODEL_NPM = "@ai-sdk/openai-compatible"
 const TIMEOUT_MS = 20_000
 
@@ -25,7 +24,7 @@ function apiKeyOf(auth) {
 }
 
 function baseURLOf(auth) {
-  const base = text(metadataOf(auth).baseURL || auth?.baseURL || DEFAULT_BASE_URL)
+  const base = text(metadataOf(auth).baseURL || auth?.baseURL)
   return base.replace(/\/+$/, "").replace(/\/v1$/i, "")
 }
 
@@ -568,10 +567,10 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     type: "text",
     key: "baseURL",
     message: "AiProxy base URL",
-    placeholder: DEFAULT_BASE_URL,
+    placeholder: "https://api.example.com",
     validate: (value) => {
       try {
-        const url = new URL(text(value) || DEFAULT_BASE_URL)
+        const url = new URL(text(value))
         if (!["http:", "https:"].includes(url.protocol)) return "请输入 http(s) 地址"
         return undefined
       } catch {
@@ -617,7 +616,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
       label,
       prompts,
       async authorize(inputs = {}) {
-        const baseURL = text(inputs.baseURL) || DEFAULT_BASE_URL
+        const baseURL = text(inputs.baseURL)
         const apiKey = text(inputs.apiKey)
         const email = text(inputs.email)
         const password = text(inputs.password)
@@ -650,7 +649,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
       label,
       prompts,
       async authorize(inputs = {}) {
-        const baseURL = text(inputs.baseURL) || DEFAULT_BASE_URL
+        const baseURL = text(inputs.baseURL)
         const apiKey = text(inputs.apiKey)
         const cookies = text(inputs.cookies)
         if (!apiKey || !cookies) return { type: "failed", error: "API key 和 Cookie 都必须填写" }
@@ -680,12 +679,12 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const auth = await getAuth()
         const key = apiKeyOf(auth)
         if (!key) return {}
-        return { baseURL: modelURLOf(auth), apiKey: key }
+        const modelBase = modelURLOf(auth)
+        if (!modelBase) return {}
+        return { baseURL: modelBase, apiKey: key }
       },
       methods: [
-        passwordMethod({ customBaseURL: false, label: "AiProxy 默认站点（API key + 控制台登录）" }),
         passwordMethod({ customBaseURL: true, label: "AiProxy 自定义站点（API key + 控制台登录）" }),
-        cookieMethod({ customBaseURL: false, label: "AiProxy 默认站点（浏览器 Cookie，支持 2FA/SSO）" }),
         cookieMethod({ customBaseURL: true, label: "AiProxy 自定义站点（浏览器 Cookie，支持 2FA/SSO）" }),
       ],
     },

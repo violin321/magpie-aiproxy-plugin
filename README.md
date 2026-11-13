@@ -5,7 +5,6 @@ This is an OpenCode provider plugin that Magpie can load natively. It adds an
 
 - OpenAI-compatible model discovery through `{baseURL}/v1/models`;
 - model requests authenticated with the AiProxy API key;
-- a default-site login path that does not ask for the base URL;
 - a browser-cookie login path for accounts protected by 2FA or SSO;
 - native `magpie quota` reporting for the AiProxy wallet;
 - daily, weekly, rolling-window and budget quota windows from
@@ -31,13 +30,8 @@ magpie plugin add https://github.com/violin321/magpie-aiproxy-plugin
 magpie plugin login @violin321/magpie-aiproxy
 ```
 
-For the default site, choose **AiProxy default site** and enter:
-
-- an AiProxy API key for model requests;
-- the AiProxy console email and password for quota reads.
-
-For another deployment, choose **AiProxy custom site** and enter its base URL
-first.
+Choose **AiProxy custom site** and enter the AiProxy base URL first, followed by
+the API key and console credentials.
 
 If the account requires 2FA or SSO, choose the **browser Cookie** method after
 logging into AiProxy in a browser. Copy the Cookie request header from the
@@ -70,8 +64,9 @@ instead of adding shared limits together.
 The plugin is designed for AiProxy deployments that expose the documented
 console routes. The browser-cookie method covers deployments where the console
 login requires 2FA or SSO. Magpie's provider icon is static for a plugin
-provider, so a custom AiProxy host keeps the plugin's configured default icon
-unless Magpie adds per-account icon support.
+provider, so all custom AiProxy hosts use the plugin's generic AiProxy icon.
+Per-host favicon selection would require Magpie to add per-account icon
+support.
 
 ## Development
 

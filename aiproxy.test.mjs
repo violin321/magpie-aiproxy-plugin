@@ -129,14 +129,12 @@ test("authorize returns an API credential without exposing secrets in errors", a
   assert.doesNotMatch(result.error, /k{8}|test-password/)
 })
 
-test("offers default-site, custom-site and browser-cookie login methods", async () => {
+test("offers custom-site password and browser-cookie login methods", async () => {
   const plugin = _internal.createPlugin({ fetchImpl: async () => response({}) })
-  assert.equal(plugin.auth.methods.length, 4)
-  assert.match(plugin.auth.methods[0].label, /默认站点/)
-  assert.match(plugin.auth.methods[1].label, /自定义站点/)
-  assert.match(plugin.auth.methods[2].label, /Cookie/)
-  assert.equal(plugin.auth.methods[0].prompts.some((item) => item.key === "baseURL"), false)
-  assert.equal(plugin.auth.methods[1].prompts.some((item) => item.key === "baseURL"), true)
+  assert.equal(plugin.auth.methods.length, 2)
+  assert.match(plugin.auth.methods[0].label, /自定义站点/)
+  assert.match(plugin.auth.methods[1].label, /Cookie/)
+  assert.equal(plugin.auth.methods.every((method) => method.prompts.some((item) => item.key === "baseURL")), true)
 })
 
 test("browser-cookie login supports a session obtained through 2FA or SSO", async () => {
@@ -146,7 +144,7 @@ test("browser-cookie login supports a session obtained through 2FA or SSO", asyn
     return response({ email: "sso@example.test" })
   }
   const plugin = _internal.createPlugin({ fetchImpl })
-  const result = await plugin.auth.methods[3].authorize({
+  const result = await plugin.auth.methods[1].authorize({
     baseURL: base,
     apiKey: "k".repeat(8),
     cookies: "session=sso",
