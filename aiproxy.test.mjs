@@ -129,6 +129,33 @@ test("authorize returns an API credential without exposing secrets in errors", a
   assert.doesNotMatch(result.error, /k{8}|test-password/)
 })
 
+test("offers default-site, custom-site and browser-cookie login methods", async () => {
+  const plugin = _internal.createPlugin({ fetchImpl: async () => response({}) })
+  assert.equal(plugin.auth.methods.length, 4)
+  assert.match(plugin.auth.methods[0].label, /默认站点/)
+  assert.match(plugin.auth.methods[1].label, /自定义站点/)
+  assert.match(plugin.auth.methods[2].label, /Cookie/)
+  assert.equal(plugin.auth.methods[0].prompts.some((item) => item.key === "baseURL"), false)
+  assert.equal(plugin.auth.methods[1].prompts.some((item) => item.key === "baseURL"), true)
+})
+
+test("browser-cookie login supports a session obtained through 2FA or SSO", async () => {
+  const fetchImpl = async (url, init = {}) => {
+    assert.equal(String(url), `${base}/api/v1/user/me`)
+    assert.equal(new Headers(init.headers).get("cookie"), "session=sso")
+    return response({ email: "sso@example.test" })
+  }
+  const plugin = _internal.createPlugin({ fetchImpl })
+  const result = await plugin.auth.methods[3].authorize({
+    baseURL: base,
+    apiKey: "k".repeat(8),
+    cookies: "session=sso",
+  })
+  assert.equal(result.type, "success")
+  assert.equal(result.accountId, "sso@example.test")
+  assert.equal(result.metadata.cookies, "session=sso")
+})
+
 test("model catalog uses the configured AiProxy API key", async () => {
   const fetchImpl = async (url, init = {}) => {
     assert.equal(String(url), `${base}/v1/models`)
@@ -139,4 +166,34 @@ test("model catalog uses the configured AiProxy API key", async () => {
   const models = await plugin.provider.models({ id: "aiproxy", models: {} }, { auth: auth() })
   assert.equal(models["gpt-test"].providerID, "aiproxy")
   assert.equal(models["gpt-test"].api.url, `${base}/v1`)
+})
+
+test("caches a short quota read and includes admin upstream windows", async () => {
+  const calls = []
+  const fetchImpl = async (url, init = {}) => {
+    calls.push(String(url))
+    const path = new URL(String(url)).pathname
+    if (path === "/api/v1/user/me") return response({ email: "admin@example.test", role: "admin", balance_usd: 4 })
+    if (path === "/api/v1/user/entitlements") return response({ plans: [] })
+    if (path === "/api/v1/admin/quota") {
+      return response({
+        groups: [{
+          accounts: [{
+            id: "upstream-1",
+            name: "Dingding",
+            quota: { windows: [{ name: "Weekly", used_percent: 12, limit: 100, unit: "USD" }] },
+          }],
+        }],
+      })
+    }
+    throw new Error(`unexpected ${url}`)
+  }
+  const plugin = _internal.createPlugin({ fetchImpl })
+  const getAuth = async () => auth({ cookies: "session=admin" })
+  const first = await plugin.auth.usage(getAuth)
+  const second = await plugin.auth.usage(getAuth)
+  assert.equal(first.windows.at(-1).name, "上游 · Dingding · Weekly")
+  assert.equal(second.windows.at(-1).used, 12)
+  assert.equal(calls.filter((url) => url.endsWith("/user/me")).length, 1)
+  assert.equal(calls.filter((url) => url.endsWith("/admin/quota")).length, 1)
 })

@@ -322,6 +322,19 @@ async function loginWithResponse(fetchImpl, auth) {
     throw wrapped
   }
   const body = await responseJSON(response)
+  const bodyText = JSON.stringify(body ?? {}).toLowerCase()
+  if (
+    body?.requires_2fa ||
+    body?.requires_mfa ||
+    body?.requires_sso ||
+    body?.challenge ||
+    /2fa|mfa|sso|verification[_ -]?code|challenge/.test(bodyText)
+  ) {
+    const error = new Error("AiProxy 登录需要二步验证或 SSO")
+    error.code = "auth_challenge"
+    error.body = body
+    throw error
+  }
   return { body, cookies: mergeCookies(cookieOf(auth), response) }
 }
 
@@ -363,6 +376,7 @@ function modelRow(provider, model, baseURL) {
     status: "active",
     headers: {},
     options: {},
+    ...(modelCost(model) ? { cost: modelCost(model) } : {}),
     reasoning: Boolean(model?.reasoning),
     tool_call: true,
     limit: {
@@ -383,7 +397,64 @@ function modelRow(provider, model, baseURL) {
   }
 }
 
+function modelCost(model) {
+  const input = number(model?.input_cost ?? model?.input_price ?? model?.pricing?.input)
+  const output = number(model?.output_cost ?? model?.output_price ?? model?.pricing?.output)
+  const cacheRead = number(model?.cache_read_cost ?? model?.pricing?.cache_read)
+  const cacheWrite = number(model?.cache_write_cost ?? model?.pricing?.cache_write)
+  if ([input, output, cacheRead, cacheWrite].every((value) => value === null)) return null
+  return {
+    ...(input !== null ? { input } : {}),
+    ...(output !== null ? { output } : {}),
+    ...((cacheRead !== null || cacheWrite !== null)
+      ? { cache: { ...(cacheRead !== null ? { read: cacheRead } : {}), ...(cacheWrite !== null ? { write: cacheWrite } : {}) } }
+      : {}),
+  }
+}
+
+function adminQuotaWindows(body) {
+  const data = dataOf(body)
+  const groups = Array.isArray(data.groups) ? data.groups : []
+  const windows = []
+  for (const group of groups) {
+    const accounts = Array.isArray(group?.accounts) ? group.accounts : []
+    for (const account of accounts) {
+      const quota = record(account?.quota)
+      const rows = Array.isArray(quota.windows) ? quota.windows : []
+      for (const row of rows) {
+        const item = record(row)
+        const limit = finitePositive(item.limit ?? item.total ?? item.capacity)
+        const remaining = finitePositive(item.remaining ?? item.left)
+        const usedPercent = finitePositive(item.used_percent ?? item.usedPercent ?? item.percent)
+        const used = finitePositive(item.used)
+        if (limit === null && remaining === null && usedPercent === null && used === null) continue
+        const effectiveUsed = used ?? (limit !== null && remaining !== null ? limit - remaining : null)
+        windows.push({
+          name: `上游 · ${text(account.name || account.id) || "账号"} · ${text(item.name || item.key) || "额度"}`,
+          ...(limit !== null ? { limit } : {}),
+          ...(remaining !== null ? { display: `${remaining} / ${limit ?? "?"} ${text(item.unit)}` } : {}),
+          ...(usedPercent !== null ? { used: usedPercent } : effectiveUsed !== null && limit ? { used: (effectiveUsed / limit) * 100 } : {}),
+          ...(item.resets_at || item.reset_at ? { resetsAt: dateOf(item.resets_at || item.reset_at) } : {}),
+          unit: text(item.unit) || "quota",
+          scope: "upstream",
+        })
+      }
+    }
+  }
+  return windows
+}
+
+function challengeError(error, fallback) {
+  if (error?.code === "auth_challenge") {
+    return "AiProxy 账号需要 2FA/SSO；请改用“浏览器会话 Cookie”登录方式"
+  }
+  return safeError(error, fallback)
+}
+
 function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
+  const usageCache = new Map()
+  const usageInflight = new Map()
+
   async function persistSession(auth) {
     if (typeof client?.auth?.set !== "function") return
     const current = metadataOf(auth)
@@ -405,13 +476,25 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
       return { plan: "AiProxy", windows: [], error: "AiProxy 登录状态不可读", signIn: "kept" }
     }
     if (!auth || auth.type !== "api" || !apiKeyOf(auth)) return {}
+    const cacheKey = `${baseURLOf(auth)}|${credentialsOf(auth).email}|${metadataOf(auth).adminQuota ? "admin" : "user"}`
+    const cached = usageCache.get(cacheKey)
+    if (cached && Date.now() - cached.at < 30_000) return cached.value
+    if (usageInflight.has(cacheKey)) return usageInflight.get(cacheKey)
+    const pending = readUsage(auth, cacheKey)
+    usageInflight.set(cacheKey, pending)
+    return pending
+  }
 
+  async function readUsage(auth, cacheKey) {
     let session
     try {
       session = await readSession(fetchImpl, auth)
       if (cookieOf(session) !== cookieOf(auth)) await persistSession(session)
     } catch (error) {
-      return { plan: "AiProxy", windows: [], error: safeError(error, error?.code === "missing_credentials" ? "AiProxy 额度读取需要控制台邮箱和密码" : "AiProxy 登录失败"), signIn: "kept" }
+      const value = { plan: "AiProxy", windows: [], error: challengeError(error, error?.code === "missing_credentials" ? "AiProxy 额度读取需要控制台邮箱和密码" : "AiProxy 登录失败"), signIn: "kept" }
+      usageCache.set(cacheKey, { at: Date.now(), value })
+      usageInflight.delete(cacheKey)
+      return value
     }
 
     let me
@@ -424,10 +507,16 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
           await persistSession(session)
           me = await authenticatedJSON(fetchImpl, session, "/user/me")
         } catch (retryError) {
-          return { plan: "AiProxy", windows: [], error: safeError(retryError, "AiProxy 登录会话已过期，请重新登录"), signIn: "kept" }
+          const value = { plan: "AiProxy", windows: [], error: challengeError(retryError, "AiProxy 登录会话已过期，请重新登录"), signIn: "kept" }
+          usageCache.set(cacheKey, { at: Date.now(), value })
+          usageInflight.delete(cacheKey)
+          return value
         }
       } else {
-        return { plan: "AiProxy", windows: [], error: safeError(error), signIn: "kept" }
+        const value = { plan: "AiProxy", windows: [], error: safeError(error), signIn: "kept" }
+        usageCache.set(cacheKey, { at: Date.now(), value })
+        usageInflight.delete(cacheKey)
+        return value
       }
     }
 
@@ -459,7 +548,126 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     if (entitlementError) {
       result.error = safeError(entitlementError, "AiProxy 套餐额度读取失败")
     }
+    const roles = [account.role, ...(Array.isArray(account.roles) ? account.roles : [])].map((role) => text(role))
+    if (roles.some((role) => ["admin", "super_admin"].includes(role))) {
+      try {
+        const admin = await authenticatedJSON(fetchImpl, session, "/admin/quota")
+        const upstream = adminQuotaWindows(admin)
+        if (upstream.length) {
+          result.windows.push(...upstream)
+          result.plan = `${result.plan} + 上游`
+        }
+      } catch {}
+    }
+    usageCache.set(cacheKey, { at: Date.now(), value: result })
+    usageInflight.delete(cacheKey)
     return result
+  }
+
+  const baseURLPrompt = {
+    type: "text",
+    key: "baseURL",
+    message: "AiProxy base URL",
+    placeholder: DEFAULT_BASE_URL,
+    validate: (value) => {
+      try {
+        const url = new URL(text(value) || DEFAULT_BASE_URL)
+        if (!["http:", "https:"].includes(url.protocol)) return "请输入 http(s) 地址"
+        return undefined
+      } catch {
+        return "请输入有效的 AiProxy 地址"
+      }
+    },
+  }
+  const apiKeyPrompt = {
+    type: "password",
+    key: "apiKey",
+    message: "AiProxy API key（模型请求用）",
+    validate: (value) => (text(value) ? undefined : "API key 不能为空"),
+  }
+  const emailPrompt = {
+    type: "text",
+    key: "email",
+    message: "AiProxy 控制台邮箱（读取额度用）",
+    validate: (value) => (text(value) ? undefined : "邮箱不能为空"),
+  }
+  const passwordPrompt = {
+    type: "password",
+    key: "password",
+    message: "AiProxy 控制台密码（读取额度用）",
+    validate: (value) => (text(value) ? undefined : "密码不能为空"),
+  }
+  const cookiePrompt = {
+    type: "password",
+    key: "cookies",
+    message: "AiProxy 浏览器会话 Cookie（支持 2FA/SSO）",
+    placeholder: "从已登录浏览器开发者工具复制 Cookie 请求头",
+    validate: (value) => (text(value) ? undefined : "Cookie 不能为空"),
+  }
+
+  function passwordMethod({ customBaseURL, label }) {
+    const prompts = [
+      ...(customBaseURL ? [baseURLPrompt] : []),
+      apiKeyPrompt,
+      emailPrompt,
+      passwordPrompt,
+    ]
+    return {
+      type: "api",
+      label,
+      prompts,
+      async authorize(inputs = {}) {
+        const baseURL = text(inputs.baseURL) || DEFAULT_BASE_URL
+        const apiKey = text(inputs.apiKey)
+        const email = text(inputs.email)
+        const password = text(inputs.password)
+        if (!apiKey || !email || !password) return { type: "failed", error: "API key、控制台邮箱和密码都必须填写" }
+        const auth = { type: "api", key: apiKey, metadata: { baseURL, email, password } }
+        try {
+          const session = await readSession(fetchImpl, auth)
+          const me = dataOf(await authenticatedJSON(fetchImpl, session, "/user/me"))
+          return {
+            type: "success",
+            key: apiKey,
+            accountId: text(me.email || me.name || email),
+            metadata: { ...auth.metadata, cookies: cookieOf(session) },
+          }
+        } catch (error) {
+          return { type: "failed", error: challengeError(error, "AiProxy 登录失败，请检查地址、邮箱和密码") }
+        }
+      },
+    }
+  }
+
+  function cookieMethod({ customBaseURL, label }) {
+    const prompts = [
+      ...(customBaseURL ? [baseURLPrompt] : []),
+      apiKeyPrompt,
+      cookiePrompt,
+    ]
+    return {
+      type: "api",
+      label,
+      prompts,
+      async authorize(inputs = {}) {
+        const baseURL = text(inputs.baseURL) || DEFAULT_BASE_URL
+        const apiKey = text(inputs.apiKey)
+        const cookies = text(inputs.cookies)
+        if (!apiKey || !cookies) return { type: "failed", error: "API key 和 Cookie 都必须填写" }
+        const auth = { type: "api", key: apiKey, metadata: { baseURL, cookies } }
+        try {
+          const me = dataOf(await authenticatedJSON(fetchImpl, auth, "/user/me"))
+          return {
+            type: "success",
+            key: apiKey,
+            accountId: text(me.email || me.name || "AiProxy"),
+            metadata: auth.metadata,
+          }
+        } catch (error) {
+          return { type: "failed", error: "Cookie 无效或已过期，请从已登录的 AiProxy 浏览器会话重新复制" }
+        }
+      },
+    }
   }
 
   return {
@@ -475,69 +683,10 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         return { baseURL: modelURLOf(auth), apiKey: key }
       },
       methods: [
-        {
-          type: "api",
-          label: "AiProxy API key + console login",
-          prompts: [
-            {
-              type: "text",
-              key: "baseURL",
-              message: "AiProxy base URL",
-              placeholder: DEFAULT_BASE_URL,
-              validate: (value) => {
-                try {
-                  const url = new URL(text(value) || DEFAULT_BASE_URL)
-                  if (!["http:", "https:"].includes(url.protocol)) return "请输入 http(s) 地址"
-                  return undefined
-                } catch {
-                  return "请输入有效的 AiProxy 地址"
-                }
-              },
-            },
-            {
-              type: "password",
-              key: "apiKey",
-              message: "AiProxy API key（模型请求用）",
-              validate: (value) => (text(value) ? undefined : "API key 不能为空"),
-            },
-            {
-              type: "text",
-              key: "email",
-              message: "AiProxy 控制台邮箱（读取额度用）",
-              validate: (value) => (text(value) ? undefined : "邮箱不能为空"),
-            },
-            {
-              type: "password",
-              key: "password",
-              message: "AiProxy 控制台密码（读取额度用）",
-              validate: (value) => (text(value) ? undefined : "密码不能为空"),
-            },
-          ],
-          async authorize(inputs = {}) {
-            const baseURL = text(inputs.baseURL) || DEFAULT_BASE_URL
-            const apiKey = text(inputs.apiKey)
-            const email = text(inputs.email)
-            const password = text(inputs.password)
-            if (!apiKey || !email || !password) return { type: "failed", error: "API key、控制台邮箱和密码都必须填写" }
-            const auth = {
-              type: "api",
-              key: apiKey,
-              metadata: { baseURL, email, password },
-            }
-            try {
-              const session = await readSession(fetchImpl, auth)
-              const me = dataOf(await authenticatedJSON(fetchImpl, session, "/user/me"))
-              return {
-                type: "success",
-                key: apiKey,
-                accountId: text(me.email || me.name || email),
-                metadata: { ...auth.metadata, cookies: cookieOf(session) },
-              }
-            } catch (error) {
-              return { type: "failed", error: safeError(error, "AiProxy 登录失败，请检查地址、邮箱和密码") }
-            }
-          },
-        },
+        passwordMethod({ customBaseURL: false, label: "AiProxy 默认站点（API key + 控制台登录）" }),
+        passwordMethod({ customBaseURL: true, label: "AiProxy 自定义站点（API key + 控制台登录）" }),
+        cookieMethod({ customBaseURL: false, label: "AiProxy 默认站点（浏览器 Cookie，支持 2FA/SSO）" }),
+        cookieMethod({ customBaseURL: true, label: "AiProxy 自定义站点（浏览器 Cookie，支持 2FA/SSO）" }),
       ],
     },
     provider: {
