@@ -56,6 +56,44 @@ function modelURLOf(auth) {
   return `${baseURLOf(auth)}/v1`
 }
 
+async function probeProtocol(fetchImpl, url, headers) {
+  try {
+    const response = await fetchImpl(url, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(8_000),
+      redirect: "error",
+    })
+    return response.status !== 404 && response.status !== 405
+  } catch {
+    return false
+  }
+}
+
+async function detectProtocols(fetchImpl, auth) {
+  const base = baseURLOf(auth)
+  const key = apiKeyOf(auth)
+  if (!base || !key) return {}
+  const headers = { accept: "application/json", authorization: `Bearer ${key}` }
+  const [models, responses, anthropic, gemini] = await Promise.all([
+    probeProtocol(fetchImpl, `${base}/v1/models`, headers),
+    probeProtocol(fetchImpl, `${base}/v1/responses`, headers),
+    probeProtocol(fetchImpl, `${base}/v1/messages`, headers),
+    probeProtocol(fetchImpl, `${base}/v1beta/models`, { "x-goog-api-key": key, accept: "application/json" }),
+  ])
+  return {
+    ...(models ? { chat: true } : {}),
+    ...(responses ? { responses: true } : {}),
+    ...(anthropic ? { anthropic: true } : {}),
+    ...(gemini ? { gemini: true } : {}),
+  }
+}
+
+function protocolNpm(auth) {
+  const protocols = metadataOf(auth).protocols ?? {}
+  return protocols.responses ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible"
+}
+
 function consoleURLOf(auth) {
   return `${baseURLOf(auth)}/api/v1`
 }
@@ -388,14 +426,14 @@ function balanceText(value) {
   return amount === null ? undefined : `$${amount.toFixed(2)}`
 }
 
-function modelRow(provider, model, baseURL) {
+function modelRow(provider, model, baseURL, npm = "@ai-sdk/openai-compatible") {
   const id = text(model?.id || model)
   if (!id) return null
   return {
     id,
     providerID: provider.id,
     name: text(model?.name) || id,
-    api: { id, url: baseURL, npm: MODEL_NPM },
+    api: { id, url: baseURL, npm },
     status: "active",
     headers: {},
     options: {},
@@ -652,11 +690,12 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         try {
           const session = await readSession(fetchImpl, auth)
           const me = dataOf(await authenticatedJSON(fetchImpl, session, "/user/me"))
+          const protocols = await detectProtocols(fetchImpl, auth)
           return {
             type: "success",
             key: apiKey,
             accountId: text(auth.metadata.accountName || me.email || me.name || email),
-            metadata: { ...auth.metadata, cookies: cookieOf(session) },
+            metadata: { ...auth.metadata, cookies: cookieOf(session), protocols },
           }
         } catch (error) {
           return { type: "failed", error: challengeError(error, "AiProxy 登录失败，请检查地址、邮箱和密码") }
@@ -686,11 +725,12 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const auth = { type: "api", key: apiKey, metadata: { baseURL, cookies, accountName: text(inputs.accountName) } }
         try {
           const me = dataOf(await authenticatedJSON(fetchImpl, auth, "/user/me"))
+          const protocols = await detectProtocols(fetchImpl, auth)
           return {
             type: "success",
             key: apiKey,
             accountId: text(auth.metadata.accountName || me.email || me.name || "AI Proxy"),
-            metadata: auth.metadata,
+            metadata: { ...auth.metadata, protocols },
           }
         } catch (error) {
           return { type: "failed", error: "Cookie 无效或已过期，请从已登录的 AiProxy 浏览器会话重新复制" }
@@ -733,6 +773,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
       async models(provider, { auth } = {}) {
         const key = apiKeyOf(auth)
         if (!key) return provider?.models ?? {}
+        const protocols = metadataOf(auth).protocols ?? await detectProtocols(fetchImpl, auth)
         let body
         try {
           body = await requestJSON(fetchImpl, `${modelURLOf(auth)}/models`, {
@@ -744,7 +785,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const models = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : []
         const result = {}
         for (const model of models) {
-          const row = modelRow(provider, model, modelURLOf(auth))
+          const row = modelRow(provider, model, modelURLOf(auth), protocolNpm({ ...auth, metadata: { ...metadataOf(auth), protocols } }))
           if (row) result[row.id] = row
         }
         return Object.keys(result).length ? result : provider?.models ?? {}
@@ -764,6 +805,8 @@ export const _internal = {
   baseURLOf,
   modelURLOf,
   consoleURLOf,
+  detectProtocols,
+  protocolNpm,
   validateBaseURL,
   safeError,
 }

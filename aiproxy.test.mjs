@@ -183,6 +183,19 @@ test("model catalog uses the configured AiProxy API key", async () => {
   assert.equal(models["gpt-test"].api.url, `${base}/v1`)
 })
 
+test("detects Responses without spending a model request", async () => {
+  const calls = []
+  const fetchImpl = async (url) => {
+    calls.push(String(url))
+    if (String(url).endsWith("/v1/models")) return response({ data: [] })
+    if (String(url).endsWith("/v1/responses")) return response({}, 401)
+    return response({}, 404)
+  }
+  const protocols = await _internal.detectProtocols(fetchImpl, auth())
+  assert.deepEqual(protocols, { chat: true, responses: true })
+  assert.equal(calls.some((url) => url.endsWith("/v1/chat/completions")), false)
+})
+
 test("caches a short quota read and includes admin upstream windows", async () => {
   const calls = []
   const fetchImpl = async (url, init = {}) => {

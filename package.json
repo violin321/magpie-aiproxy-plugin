@@ -1,6 +1,6 @@
 {
   "name": "@violin321/magpie-aiproxy",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "AiProxy provider plugin for Magpie/OpenCode with native account, plan and wallet quota reporting",
   "type": "module",
   "main": "./opencode.mjs",

@@ -38,6 +38,18 @@ that account's quota card without changing the provider name.
 Public Base URLs must use `https://`. Plain `http://` is accepted only for
 localhost, `.local`, loopback and private LAN addresses.
 
+After login, the plugin performs only read-only protocol probes:
+
+- `/v1/models` indicates an OpenAI-compatible provider;
+- `/v1/responses` selects the OpenAI Responses SDK when the endpoint exists;
+- `/v1/messages` and `/v1beta/models` are recorded as Anthropic and Gemini
+  capabilities.
+
+The plugin currently routes model traffic through OpenAI Chat Completions or
+OpenAI Responses. It reports Anthropic/Gemini detection for visibility but does
+not translate those upstream protocols yet. Probes never send a prompt or
+generate model output.
+
 If the account requires 2FA or SSO, choose the **browser Cookie** method after
 logging into AiProxy in a browser. Copy the Cookie request header from the
 authenticated `/api/v1` request and paste it into Magpie. The API key is still
