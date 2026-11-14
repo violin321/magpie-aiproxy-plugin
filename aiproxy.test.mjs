@@ -138,6 +138,14 @@ test("offers custom-site password and browser-cookie login methods", async () =>
   assert.equal(plugin.auth.methods.every((method) => method.prompts.some((item) => item.key === "baseURL")), true)
 })
 
+test("configures the provider display name as AI Proxy", async () => {
+  const plugin = _internal.createPlugin({ fetchImpl: async () => response({}) })
+  const cfg = { provider: {} }
+  await plugin.config(cfg)
+  assert.equal(cfg.provider.aiproxy.name, "AI Proxy")
+  assert.equal(cfg.provider.aiproxy.npm, "@ai-sdk/openai-compatible")
+})
+
 test("validates public HTTPS and allows local HTTP endpoints", () => {
   assert.equal(_internal.validateBaseURL("https://api.example.com"), undefined)
   assert.match(_internal.validateBaseURL("http://api.example.com"), /HTTPS/)

@@ -700,6 +700,15 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
   }
 
   return {
+    config: async (cfg) => {
+      cfg.provider ??= {}
+      const previous = cfg.provider[ID] ?? {}
+      cfg.provider[ID] = {
+        name: "AI Proxy",
+        npm: "@ai-sdk/openai-compatible",
+        ...previous,
+      }
+    },
     auth: {
       provider: ID,
       icon: ICON_URL,
