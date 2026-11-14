@@ -51,6 +51,11 @@ not translate those upstream protocols yet. Choose **Auto** to use the probes,
 or explicitly choose Chat Completions / Responses to override them. Probes
 never send a prompt or generate model output.
 
+After login, the provider options also expose **Force OpenAI Chat Completions**
+and **Force OpenAI Responses** switches. These change the model SDK selection
+without asking for the API key or console credentials again. If both switches
+are enabled, Responses takes precedence.
+
 If the account requires 2FA or SSO, choose the **browser Cookie** method after
 logging into AiProxy in a browser. Copy the Cookie request header from the
 authenticated `/api/v1` request and paste it into Magpie. The API key is still

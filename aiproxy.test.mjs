@@ -145,6 +145,16 @@ test("manual protocol selection overrides automatic detection", () => {
   assert.equal(_internal.protocolNpm({ metadata: { protocolOverride: "auto", protocols: { responses: true } } }), "@ai-sdk/openai")
 })
 
+test("exposes post-login protocol switches", async () => {
+  const plugin = _internal.createPlugin({
+    fetchImpl: async () => response({ data: [{ id: "gpt-test" }] }),
+    magpie: { option: (_provider, key) => key === "force_responses" },
+  })
+  assert.deepEqual(plugin.auth.options.map((option) => option.key), ["force_chat", "force_responses"])
+  const models = await plugin.provider.models({ id: "aiproxy", models: {} }, { auth: auth({ protocols: { chat: true } }) })
+  assert.equal(models["gpt-test"].api.npm, "@ai-sdk/openai")
+})
+
 test("configures the provider display name as AI Proxy", async () => {
   const plugin = _internal.createPlugin({ fetchImpl: async () => response({}) })
   const cfg = { provider: {} }

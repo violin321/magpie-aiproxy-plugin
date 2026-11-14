@@ -89,8 +89,8 @@ async function detectProtocols(fetchImpl, auth) {
   }
 }
 
-function protocolNpm(auth) {
-  const override = text(metadataOf(auth).protocolOverride)
+function protocolNpm(auth, forcedOverride = "") {
+  const override = text(forcedOverride) || text(metadataOf(auth).protocolOverride)
   if (override === "chat") return "@ai-sdk/openai-compatible"
   if (override === "responses") return "@ai-sdk/openai"
   const protocols = metadataOf(auth).protocols ?? {}
@@ -515,7 +515,7 @@ function challengeError(error, fallback) {
   return safeError(error, fallback)
 }
 
-function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
+function createPlugin({ fetchImpl = globalThis.fetch, client = {}, magpie = {} } = {}) {
   const usageCache = new Map()
   const usageInflight = new Map()
 
@@ -787,6 +787,24 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
       provider: ID,
       icon: ICON_URL,
       maxConcurrency: 8,
+      options: [
+        {
+          key: "force_chat",
+          label: "强制 OpenAI Chat Completions",
+          description: "打开后忽略自动探测和登录时选择，所有模型都使用 /v1/chat/completions。",
+          labels: { en: "Force OpenAI Chat Completions", zh: "强制 OpenAI Chat Completions" },
+          descriptions: { en: "Use /v1/chat/completions for every model.", zh: "所有模型使用 /v1/chat/completions。" },
+          default: false,
+        },
+        {
+          key: "force_responses",
+          label: "强制 OpenAI Responses",
+          description: "打开后忽略自动探测和登录时选择，所有模型都使用 /v1/responses。",
+          labels: { en: "Force OpenAI Responses", zh: "强制 OpenAI Responses" },
+          descriptions: { en: "Use /v1/responses for every model.", zh: "所有模型使用 /v1/responses。" },
+          default: false,
+        },
+      ],
       usage,
       loader: async (getAuth) => {
         const auth = await getAuth()
@@ -808,6 +826,11 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const key = apiKeyOf(auth)
         if (!key) return provider?.models ?? {}
         const protocols = metadataOf(auth).protocols ?? await detectProtocols(fetchImpl, auth)
+        const forcedProtocol = magpie?.option?.(ID, "force_responses")
+          ? "responses"
+          : magpie?.option?.(ID, "force_chat")
+            ? "chat"
+            : ""
         let body
         try {
           body = await requestJSON(fetchImpl, `${modelURLOf(auth)}/models`, {
@@ -819,7 +842,12 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const models = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : []
         const result = {}
         for (const model of models) {
-          const row = modelRow(provider, model, modelURLOf(auth), protocolNpm({ ...auth, metadata: { ...metadataOf(auth), protocols } }))
+          const row = modelRow(
+            provider,
+            model,
+            modelURLOf(auth),
+            protocolNpm({ ...auth, metadata: { ...metadataOf(auth), protocols } }, forcedProtocol),
+          )
           if (row) result[row.id] = row
         }
         return Object.keys(result).length ? result : provider?.models ?? {}
