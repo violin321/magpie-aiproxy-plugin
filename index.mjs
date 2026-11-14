@@ -28,6 +28,30 @@ function baseURLOf(auth) {
   return base.replace(/\/+$/, "").replace(/\/v1$/i, "")
 }
 
+function validateBaseURL(value) {
+  const raw = text(value)
+  if (!raw) return "Base URL 不能为空"
+  let url
+  try {
+    url = new URL(raw)
+  } catch {
+    return "请输入有效的 Base URL"
+  }
+  if (!["http:", "https:"].includes(url.protocol)) return "协议必须是 http 或 https"
+  if (url.username || url.password || url.search || url.hash) return "Base URL 不能包含账号、密码、查询参数或片段"
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "")
+  const local =
+    host === "localhost" ||
+    host.endsWith(".local") ||
+    host === "::1" ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  if (url.protocol !== "https:" && !local) return "公网 Base URL 必须使用 HTTPS；HTTP 仅允许本机或局域网地址"
+  return undefined
+}
+
 function modelURLOf(auth) {
   return `${baseURLOf(auth)}/v1`
 }
@@ -522,7 +546,9 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     const account = dataOf(me)
     const result = {
       plan: "AiProxy",
-      ...(text(account.name || account.display_name || account.email) ? { user: text(account.name || account.display_name || account.email) } : {}),
+      ...(text(metadataOf(auth).accountName || account.name || account.display_name || account.email)
+        ? { user: text(metadataOf(auth).accountName || account.name || account.display_name || account.email) }
+        : {}),
       ...(balanceText(account.balance_usd) ? { balance: balanceText(account.balance_usd) } : {}),
       windows: [],
       signIn: "kept",
@@ -568,15 +594,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     key: "baseURL",
     message: "AiProxy base URL",
     placeholder: "https://api.example.com",
-    validate: (value) => {
-      try {
-        const url = new URL(text(value))
-        if (!["http:", "https:"].includes(url.protocol)) return "请输入 http(s) 地址"
-        return undefined
-      } catch {
-        return "请输入有效的 AiProxy 地址"
-      }
-    },
+    validate: validateBaseURL,
   }
   const apiKeyPrompt = {
     type: "password",
@@ -589,6 +607,12 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     key: "email",
     message: "AiProxy 控制台邮箱（读取额度用）",
     validate: (value) => (text(value) ? undefined : "邮箱不能为空"),
+  }
+  const accountNamePrompt = {
+    type: "text",
+    key: "accountName",
+    message: "Magpie 中的账号显示名（可选）",
+    placeholder: "AI Proxy",
   }
   const passwordPrompt = {
     type: "password",
@@ -610,6 +634,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
       apiKeyPrompt,
       emailPrompt,
       passwordPrompt,
+      accountNamePrompt,
     ]
     return {
       type: "api",
@@ -620,15 +645,17 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const apiKey = text(inputs.apiKey)
         const email = text(inputs.email)
         const password = text(inputs.password)
+        const baseError = validateBaseURL(baseURL)
+        if (baseError) return { type: "failed", error: baseError }
         if (!apiKey || !email || !password) return { type: "failed", error: "API key、控制台邮箱和密码都必须填写" }
-        const auth = { type: "api", key: apiKey, metadata: { baseURL, email, password } }
+        const auth = { type: "api", key: apiKey, metadata: { baseURL, email, password, accountName: text(inputs.accountName) } }
         try {
           const session = await readSession(fetchImpl, auth)
           const me = dataOf(await authenticatedJSON(fetchImpl, session, "/user/me"))
           return {
             type: "success",
             key: apiKey,
-            accountId: text(me.email || me.name || email),
+            accountId: text(auth.metadata.accountName || me.email || me.name || email),
             metadata: { ...auth.metadata, cookies: cookieOf(session) },
           }
         } catch (error) {
@@ -643,6 +670,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
       ...(customBaseURL ? [baseURLPrompt] : []),
       apiKeyPrompt,
       cookiePrompt,
+      accountNamePrompt,
     ]
     return {
       type: "api",
@@ -652,14 +680,16 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const baseURL = text(inputs.baseURL)
         const apiKey = text(inputs.apiKey)
         const cookies = text(inputs.cookies)
+        const baseError = validateBaseURL(baseURL)
+        if (baseError) return { type: "failed", error: baseError }
         if (!apiKey || !cookies) return { type: "failed", error: "API key 和 Cookie 都必须填写" }
-        const auth = { type: "api", key: apiKey, metadata: { baseURL, cookies } }
+        const auth = { type: "api", key: apiKey, metadata: { baseURL, cookies, accountName: text(inputs.accountName) } }
         try {
           const me = dataOf(await authenticatedJSON(fetchImpl, auth, "/user/me"))
           return {
             type: "success",
             key: apiKey,
-            accountId: text(me.email || me.name || "AiProxy"),
+            accountId: text(auth.metadata.accountName || me.email || me.name || "AI Proxy"),
             metadata: auth.metadata,
           }
         } catch (error) {
@@ -690,6 +720,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     },
     provider: {
       id: ID,
+      name: "AI Proxy",
       async models(provider, { auth } = {}) {
         const key = apiKeyOf(auth)
         if (!key) return provider?.models ?? {}
@@ -724,5 +755,6 @@ export const _internal = {
   baseURLOf,
   modelURLOf,
   consoleURLOf,
+  validateBaseURL,
   safeError,
 }

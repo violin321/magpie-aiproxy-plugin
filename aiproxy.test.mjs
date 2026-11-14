@@ -132,9 +132,18 @@ test("authorize returns an API credential without exposing secrets in errors", a
 test("offers custom-site password and browser-cookie login methods", async () => {
   const plugin = _internal.createPlugin({ fetchImpl: async () => response({}) })
   assert.equal(plugin.auth.methods.length, 2)
+  assert.equal(plugin.provider.name, "AI Proxy")
   assert.match(plugin.auth.methods[0].label, /自定义站点/)
   assert.match(plugin.auth.methods[1].label, /Cookie/)
   assert.equal(plugin.auth.methods.every((method) => method.prompts.some((item) => item.key === "baseURL")), true)
+})
+
+test("validates public HTTPS and allows local HTTP endpoints", () => {
+  assert.equal(_internal.validateBaseURL("https://api.example.com"), undefined)
+  assert.match(_internal.validateBaseURL("http://api.example.com"), /HTTPS/)
+  assert.equal(_internal.validateBaseURL("http://127.0.0.1:8080"), undefined)
+  assert.equal(_internal.validateBaseURL("http://192.168.1.20:8080"), undefined)
+  assert.match(_internal.validateBaseURL("https://user:" + "pass" + "@example.com"), /不能包含/)
 })
 
 test("browser-cookie login supports a session obtained through 2FA or SSO", async () => {

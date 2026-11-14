@@ -31,7 +31,12 @@ magpie plugin login @violin321/magpie-aiproxy
 ```
 
 Choose **AiProxy custom site** and enter the AiProxy base URL first, followed by
-the API key and console credentials.
+the API key and console credentials. The provider is shown as **AI Proxy** in
+Magpie; you can set an optional account display name during login, which labels
+that account's quota card without changing the provider name.
+
+Public Base URLs must use `https://`. Plain `http://` is accepted only for
+localhost, `.local`, loopback and private LAN addresses.
 
 If the account requires 2FA or SSO, choose the **browser Cookie** method after
 logging into AiProxy in a browser. Copy the Cookie request header from the
