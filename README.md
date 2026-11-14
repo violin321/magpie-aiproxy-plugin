@@ -31,7 +31,7 @@ magpie plugin login @violin321/magpie-aiproxy
 ```
 
 Choose **AiProxy custom site** and enter the AiProxy base URL first, followed by
-the API key and console credentials. The provider is shown as **AI Proxy** in
+the API key, protocol choice and console credentials. The provider is shown as **AI Proxy** in
 Magpie; you can set an optional account display name during login, which labels
 that account's quota card without changing the provider name.
 
@@ -47,8 +47,9 @@ After login, the plugin performs only read-only protocol probes:
 
 The plugin currently routes model traffic through OpenAI Chat Completions or
 OpenAI Responses. It reports Anthropic/Gemini detection for visibility but does
-not translate those upstream protocols yet. Probes never send a prompt or
-generate model output.
+not translate those upstream protocols yet. Choose **Auto** to use the probes,
+or explicitly choose Chat Completions / Responses to override them. Probes
+never send a prompt or generate model output.
 
 If the account requires 2FA or SSO, choose the **browser Cookie** method after
 logging into AiProxy in a browser. Copy the Cookie request header from the

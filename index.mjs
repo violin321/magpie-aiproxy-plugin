@@ -90,6 +90,9 @@ async function detectProtocols(fetchImpl, auth) {
 }
 
 function protocolNpm(auth) {
+  const override = text(metadataOf(auth).protocolOverride)
+  if (override === "chat") return "@ai-sdk/openai-compatible"
+  if (override === "responses") return "@ai-sdk/openai"
   const protocols = metadataOf(auth).protocols ?? {}
   return protocols.responses ? "@ai-sdk/openai" : "@ai-sdk/openai-compatible"
 }
@@ -640,6 +643,16 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     message: "AiProxy API key（模型请求用）",
     validate: (value) => (text(value) ? undefined : "API key 不能为空"),
   }
+  const protocolPrompt = {
+    type: "select",
+    key: "protocolOverride",
+    message: "上游 API 协议",
+    options: [
+      { label: "自动检测", value: "auto", hint: "推荐" },
+      { label: "OpenAI Chat Completions", value: "chat", hint: "/v1/chat/completions" },
+      { label: "OpenAI Responses", value: "responses", hint: "/v1/responses" },
+    ],
+  }
   const emailPrompt = {
     type: "text",
     key: "email",
@@ -670,6 +683,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     const prompts = [
       ...(customBaseURL ? [baseURLPrompt] : []),
       apiKeyPrompt,
+      protocolPrompt,
       emailPrompt,
       passwordPrompt,
       accountNamePrompt,
@@ -686,7 +700,17 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const baseError = validateBaseURL(baseURL)
         if (baseError) return { type: "failed", error: baseError }
         if (!apiKey || !email || !password) return { type: "failed", error: "API key、控制台邮箱和密码都必须填写" }
-        const auth = { type: "api", key: apiKey, metadata: { baseURL, email, password, accountName: text(inputs.accountName) } }
+        const auth = {
+          type: "api",
+          key: apiKey,
+          metadata: {
+            baseURL,
+            email,
+            password,
+            accountName: text(inputs.accountName),
+            protocolOverride: text(inputs.protocolOverride) || "auto",
+          },
+        }
         try {
           const session = await readSession(fetchImpl, auth)
           const me = dataOf(await authenticatedJSON(fetchImpl, session, "/user/me"))
@@ -708,6 +732,7 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
     const prompts = [
       ...(customBaseURL ? [baseURLPrompt] : []),
       apiKeyPrompt,
+      protocolPrompt,
       cookiePrompt,
       accountNamePrompt,
     ]
@@ -722,7 +747,16 @@ function createPlugin({ fetchImpl = globalThis.fetch, client = {} } = {}) {
         const baseError = validateBaseURL(baseURL)
         if (baseError) return { type: "failed", error: baseError }
         if (!apiKey || !cookies) return { type: "failed", error: "API key 和 Cookie 都必须填写" }
-        const auth = { type: "api", key: apiKey, metadata: { baseURL, cookies, accountName: text(inputs.accountName) } }
+        const auth = {
+          type: "api",
+          key: apiKey,
+          metadata: {
+            baseURL,
+            cookies,
+            accountName: text(inputs.accountName),
+            protocolOverride: text(inputs.protocolOverride) || "auto",
+          },
+        }
         try {
           const me = dataOf(await authenticatedJSON(fetchImpl, auth, "/user/me"))
           const protocols = await detectProtocols(fetchImpl, auth)

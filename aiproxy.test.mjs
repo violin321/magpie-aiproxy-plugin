@@ -136,6 +136,13 @@ test("offers custom-site password and browser-cookie login methods", async () =>
   assert.match(plugin.auth.methods[0].label, /自定义站点/)
   assert.match(plugin.auth.methods[1].label, /Cookie/)
   assert.equal(plugin.auth.methods.every((method) => method.prompts.some((item) => item.key === "baseURL")), true)
+  assert.equal(plugin.auth.methods.every((method) => method.prompts.some((item) => item.key === "protocolOverride")), true)
+})
+
+test("manual protocol selection overrides automatic detection", () => {
+  assert.equal(_internal.protocolNpm({ metadata: { protocolOverride: "chat", protocols: { responses: true } } }), "@ai-sdk/openai-compatible")
+  assert.equal(_internal.protocolNpm({ metadata: { protocolOverride: "responses", protocols: { chat: true } } }), "@ai-sdk/openai")
+  assert.equal(_internal.protocolNpm({ metadata: { protocolOverride: "auto", protocols: { responses: true } } }), "@ai-sdk/openai")
 })
 
 test("configures the provider display name as AI Proxy", async () => {
